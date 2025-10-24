@@ -32,8 +32,13 @@ This Jupyter notebook (`acl-ms1.ipynb`) implements a comprehensive machine learn
 acl_project_team21/
 ├── acl-ms1.ipynb                          # Main analysis notebook
 ├── README.md                               # Project overview
+└── cleaned_data/
+    ├── AirlineScrappedReview_Cleaned_CLEANED.csv
+    ├── Survey data_Inflight Satisfaction Score_CLEANED.csv
+    ├── Passanger_booking_data_CLEANED.csv
+    └── Customer_comment_CLEANED.csv
 ```
-Dataset is available through this link: https://www.kaggle.com/datasets/youssefsameh55/airlinedataset/versions/1
+
 ---
 
 ## Dependencies
