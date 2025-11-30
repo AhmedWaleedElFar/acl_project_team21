@@ -1,5 +1,6 @@
 import pandas as pd
 from neo4j import GraphDatabase
+from verify_queries import verify_kg_creation
 
 """
 Fetching credentials from config.txt
@@ -205,6 +206,8 @@ def main():
             create_relationships(driver, raw_df_list)
             
             print("\n✨ Knowledge Graph Creation Complete! ✨")
+
+            verify_kg_creation(driver)
 
     except Exception as e:
         print(f"❌ Connection failed! Error: {e}")
