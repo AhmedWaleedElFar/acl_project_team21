@@ -1,6 +1,5 @@
 import pandas as pd
 from neo4j import GraphDatabase
-from verify_queries import verify_kg_creation
 
 """
 Fetching credentials from config.txt
@@ -19,6 +18,14 @@ def get_config(filename="config.txt"):
                     key = key.strip().lower()
                     value = value.strip().strip('"').strip("'") 
                     config[key] = value
+                    """
+                    config structure:
+                    {
+                    "uri": uri,
+                    "username": username,
+                    "password": password
+                    }
+                    """
         return config
     except FileNotFoundError:
         print(f"Error: Configuration file '{filename}' not found.")
@@ -38,34 +45,56 @@ def prepare_data():
         print("Error: 'Airline_surveys_sample.csv' not found.")
         return None, None, None, None, None
 
+    #Raw version of the dataset
     raw_df_list = airline_surveys_df.to_dict("records")
 
-    flight_data = airline_surveys_df[["flight_number", "fleet_type_description"]].drop_duplicates().to_dict('records')
-    journey_data = airline_surveys_df[["feedback_ID", "food_satisfaction_score", "arrival_delay_minutes", 
-                                       "actual_flown_miles", "number_of_legs", "passenger_class"]].drop_duplicates().to_dict('records')
-    passenger_data = airline_surveys_df[["record_locator", "loyalty_program_level", "generation"]].drop_duplicates().to_dict(orient="records")
+    #Selecting features related to each node
+    #dropping duplicates to make sure that no node is created more than once.
+    flight_data = airline_surveys_df[[
+        "flight_number",
+        "fleet_type_description"
+        ]].drop_duplicates().to_dict('records')
+
+    journey_data = airline_surveys_df[[
+        "feedback_ID",
+        "food_satisfaction_score",
+        "arrival_delay_minutes",
+        "actual_flown_miles",
+        "number_of_legs",
+        "passenger_class"
+        ]].drop_duplicates().to_dict('records')
+
+    passenger_data = airline_surveys_df[[
+        "record_locator",
+        "loyalty_program_level",
+        "generation"
+        ]].drop_duplicates().to_dict(orient="records")
+
     departure_airports = airline_surveys_df[['origin_station_code']].rename(columns={'origin_station_code': 'station_code'}).drop_duplicates()
     arrival_airports = airline_surveys_df[['destination_station_code']].rename(columns={'destination_station_code': 'station_code'}).drop_duplicates()
     airport_data = pd.concat([departure_airports, arrival_airports]).drop_duplicates().to_dict('records')
-    
+
     print(f"Prepared {len(passenger_data)} Passengers, {len(journey_data)} Journeys, {len(flight_data)} Flights, {len(airport_data)} Airports.")
 
-    # Return the full list for relationships and the unique node lists
     return raw_df_list, flight_data, journey_data, passenger_data, airport_data
 
 """
 KG Creation
 """
-# Creating constraints
 def create_constraints(driver):
     print("\n--- 1. Enforcing Constraints and Indexes ---")
     
+    # Creating the primary keys using the "CONSTRAINT" keyword
+    # CONSTRAINT makes sure that the data is unique and serves as an index
+    # No primary keys were set for the Flight node because it only consists of two features and both uniquely identify the record
     constraints = [
         "CREATE CONSTRAINT passenger_locator IF NOT EXISTS FOR (p:Passenger) REQUIRE p.record_locator IS UNIQUE",
         "CREATE CONSTRAINT journey_feedback IF NOT EXISTS FOR (j:Journey) REQUIRE j.feedback_ID IS UNIQUE",
         "CREATE CONSTRAINT airport_code IF NOT EXISTS FOR (a:Airport) REQUIRE a.station_code IS UNIQUE",
     ]
     
+    # Creating Indexes on both features for faster lookup
+    # Data is already unique because we removed duplicates rom the airport_data
     indexes = [
         "CREATE INDEX flight_num IF NOT EXISTS FOR (f:Flight) ON (f.flight_number)",
         "CREATE INDEX flight_fleet IF NOT EXISTS FOR (f:Flight) ON (f.fleet_type_description)",
@@ -84,16 +113,18 @@ def create_nodes(driver, flight_data, journey_data, passenger_data, airport_data
     print("\n--- 2. Creating All Nodes ---")
     
     with driver.session(database="neo4j") as session:
-        # 1. Passenger Nodes
+        # Passenger Nodes
         passenger_query = """
             UNWIND $data AS row
             MERGE (p:Passenger {record_locator: row.record_locator})
             ON CREATE SET p.loyalty_program_level = row.loyalty_program_level, p.generation = row.generation
         """
+        # "$data" is replaced by the passenger_data
+        # Using ".consume" is to allow transaction finalization and release of connection and resources.
         session.run(passenger_query, data=passenger_data).consume() 
         print(f"✅ Created {len(passenger_data)} unique Passenger nodes.")
 
-        # 2. Flight Nodes
+        # Flight Nodes
         flight_query = """
             UNWIND $data AS row
             MERGE (f:Flight {
@@ -104,7 +135,7 @@ def create_nodes(driver, flight_data, journey_data, passenger_data, airport_data
         session.run(flight_query, data=flight_data).consume() 
         print(f"✅ Created {len(flight_data)} unique Flight nodes.")
 
-        # 3. Journey Nodes
+        # Journey Nodes
         journey_query = """
             UNWIND $data AS row
             MERGE (j:Journey {feedback_ID: row.feedback_ID})
@@ -118,7 +149,7 @@ def create_nodes(driver, flight_data, journey_data, passenger_data, airport_data
         session.run(journey_query, data=journey_data).consume() 
         print(f"✅ Created {len(journey_data)} unique Journey nodes.")
 
-        # 4. Airport Nodes
+        # Airport Nodes
         airport_query = """
             UNWIND $data AS row
             MERGE (a:Airport {station_code: row.station_code})
@@ -198,16 +229,11 @@ def main():
                 print(f"Connection established successfully and queried database: {result.single()['message']}")
 
             print("\n--- Starting Knowledge Graph Creation ---")
-            
             create_constraints(driver)
-            
             create_nodes(driver, flight_data, journey_data, passenger_data, airport_data)
-
             create_relationships(driver, raw_df_list)
             
             print("\n✨ Knowledge Graph Creation Complete! ✨")
-
-            verify_kg_creation(driver)
 
     except Exception as e:
         print(f"❌ Connection failed! Error: {e}")

@@ -1,0 +1,26 @@
+MATCH (p:Passenger)-[:TOOK]->(j:Journey)
+WITH
+    p,
+    j.food_satisfaction_score AS food,
+    (round(abs(toFloat(j.arrival_delay_minutes)) / 20.0 * 10.0) / 10.0) AS delay_val,
+    (round(toFloat(j.number_of_legs) * 1.5 * 10.0) / 10.0) AS legs_val,
+    (round(toFloat(j.actual_flown_miles) / 3000.0 * 10.0) / 10.0) AS miles_val
+WITH
+    p,
+    food AS food_score,
+    5.0 - (CASE WHEN delay_val < 0.0 THEN 0.0 WHEN delay_val > 5.0 THEN 5.0 ELSE delay_val END) AS delay_score,
+    5.0 - (CASE WHEN legs_val < 0.0 THEN 0.0 WHEN legs_val > 5.0 THEN 5.0 ELSE legs_val END) AS legs_score,
+    5.0 - (CASE WHEN miles_val < 0.0 THEN 0.0 WHEN miles_val > 5.0 THEN 5.0 ELSE miles_val END) AS miles_score
+WITH
+    p,
+    (
+        food_score * 0.5 +
+        delay_score * 0.35 +
+        legs_score * 0.1 +
+        miles_score * 0.05
+    ) AS raw_score
+WITH
+    p,
+    (round(raw_score * 10.0) / 10.0) AS final_rounded_score
+WHERE final_rounded_score > 3.0
+RETURN count(p) AS passengers_with_high_satisfaction
